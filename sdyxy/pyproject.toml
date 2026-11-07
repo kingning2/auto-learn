@@ -1,0 +1,22 @@
+[project]
+license = { text = "MIT" }
+name = "sdyxy"
+version = "0.1.0"
+description = "sdyxy 业务层：curl_cffi 预检 + 登录流程编排。只依赖 contracts 端口，不碰浏览器库。"
+requires-python = ">=3.11"
+dependencies = [
+  "curl-cffi>=0.7",
+  "core",
+  "contracts",
+]
+
+[tool.uv.sources]
+core = { workspace = true }
+contracts = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
