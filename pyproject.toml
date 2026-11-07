@@ -1,0 +1,13 @@
+# uv 工作区根（virtual root，无 [project]）。
+# 成员 = 各能力包 + app 装配入口。锁文件在仓库根 uv.lock。
+# 依赖方向: app -> sdyxy(业务) -> contracts(端口) <- browser(能力层实现端口)
+#           sdyxy/browser -> core(配置/错误)
+[tool.uv.workspace]
+members = ["core", "contracts", "browser", "sdyxy", "app"]
+
+[tool.uv.sources]
+core = { workspace = true }
+contracts = { workspace = true }
+browser = { workspace = true }
+sdyxy = { workspace = true }
+app = { workspace = true }
