@@ -1,0 +1,23 @@
+[project]
+license = { text = "MIT" }
+name = "browser"
+version = "0.1.0"
+description = "浏览器能力层：invisible_playwright 反检测引擎 + LoginDriver 实现。唯一允许 import 浏览器库的包。禁止出现平台业务。"
+requires-python = ">=3.11"
+dependencies = [
+  "invisible-playwright>=0.45",
+  "playwright>=1.40",
+  "core",
+  "contracts",
+]
+
+[tool.uv.sources]
+contracts = { workspace = true }
+core = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
