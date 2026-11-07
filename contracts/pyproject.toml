@@ -1,0 +1,14 @@
+[project]
+license = { text = "MIT" }
+name = "contracts"
+version = "0.1.0"
+description = "端口层：登录驱动插座。业务只依赖本接口，不碰 invisible_playwright/Playwright。"
+requires-python = ">=3.11"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
