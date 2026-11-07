@@ -53,6 +53,8 @@ WATCH_CHECK_S = 60
 
 # 房间页"未开播"特征文本(出现则说明播放器还没起来, 定期刷新拉起直播画面)
 ROOM_NOT_LIVE_TEXT = "当前未直播"
+# 保利威房间页在主播关播后显示的文案(与开播前的"当前未直播"不同)
+LIVE_END_TEXT = "当前暂无直播"
 
 # 连续判定会话失效的失败次数阈值
 SESSION_FAIL_LIMIT = 4
@@ -307,6 +309,7 @@ def stay_in_room(driver: LoginDriver, settings: Settings, until_epoch: float | N
     else:
         print("[观看] 进入观看模式(单次运行: 手动 Ctrl+C 结束)…")
     n = 0
+    end_hits = 0  # 连续命中"直播结束"文案的次数(防切流抖动, 连续2次才确认)
     while until_epoch is None or time.time() < until_epoch:
         try:
             time.sleep(WATCH_CHECK_S)
@@ -330,6 +333,19 @@ def stay_in_room(driver: LoginDriver, settings: Settings, until_epoch: float | N
                 print(f"[观看] 页面白屏(可能掉线), 刷新拉回… {fmt_remaining(remaining)}")
                 notify_info("⚠️ 页面白屏(可能掉线)，已自动刷新拉回", dedup=True)
                 driver.reload()
+                end_hits = 0
+            elif driver.evaluate(
+                f"() => document.body && document.body.innerText.includes('{LIVE_END_TEXT}')"
+            ) == "True":
+                # 主播关播: 连续 2 次命中(~10-15s)才确认, 避免切流瞬间的误判
+                end_hits += 1
+                if end_hits >= 2:
+                    driver.screenshot(settings.output_dir / "live_ended.png")
+                    print(f"[观看] 直播已结束(页面显示'{LIVE_END_TEXT}'), 提前收工."
+                          f" 截图: {settings.output_dir / 'live_ended.png'}")
+                    notify_info("📺 直播已结束，本时段提前收工")
+                    return
+                print(f"[观看] 疑似直播结束({end_hits}/2), 再确认一轮…")
             elif driver.evaluate(
                 f"() => document.body && document.body.innerText.includes('{ROOM_NOT_LIVE_TEXT}')"
             ) == "True":
