@@ -46,13 +46,17 @@ TEST_TRIGGER_DELAY_S = 15
 TEST_WINDOW_S = 3 * 60
 
 
-def next_window(now: datetime) -> tuple[datetime, datetime]:
+def next_window(now: datetime, after: datetime | None = None) -> tuple[datetime, datetime]:
     """下一个待执行窗口, 返回 (启动时刻, 观看截止时刻), 均为北京时间 aware dt.
 
     启动时刻 = 上课开始前 2 分钟; 截止时刻 = 上课结束(该时段 end).
 
     边界处理: 若触发时刻已过但还没到上课时间(如上一节拖堂吃掉间隔),
     立即返回该窗口 —— 迟到就位也强于跳过(进去看后半节).
+
+    Args:
+        after: 已消费窗口的截止时刻 —— 早收工后防止把同一个窗口再抬一遍;
+        另外剩余不足 10 分钟的已开课窗口直接跳过(临近结束没意义).
     """
     day = now.date()
     for day_offset in range(0, 8):
@@ -63,12 +67,17 @@ def next_window(now: datetime) -> tuple[datetime, datetime]:
             start_dt = datetime.combine(d, start, tzinfo=BEIJING)
             trigger = start_dt - timedelta(minutes=LEAD_MINUTES)
             deadline = datetime.combine(d, end, tzinfo=BEIJING)
+            if after is not None and deadline <= after:
+                continue
             if trigger > now:
                 return trigger, deadline
             if now < start_dt:  # 触发点已过但课还没开始: 立即启动(迟到就位)
                 print(f"[调度] 触发时刻 {trigger:%H:%M} 已过但课未开始, 立即就位!")
                 return now, deadline
-            if now < deadline:  # 课已开始还没下(如中断后重启): 立即加入看后半节
+            # 课已开始但只剩不到 10 分钟: 加入观看没意义, 跳过避免临结束反复重入
+            if now < deadline:
+                if deadline - now < timedelta(minutes=10):
+                    continue
                 print(f"[调度] 课已开始({start_dt:%H:%M})尚未结束, 立即加入!")
                 return now, deadline
     raise RuntimeError("8 天内找不到周六窗口, 不可能发生")
@@ -144,9 +153,11 @@ def main() -> None:
         print("[调度][测试模式] 测试窗口执行完毕, 退出")
         return
 
+    last_deadline = None  # 已消费窗口的截止时刻, 防止同一窗口重复加入
     while True:
         now = datetime.now(BEIJING)
-        trigger, deadline = next_window(now)
+        trigger, deadline = next_window(now, after=last_deadline)
+        last_deadline = deadline
         print(
             f"[调度] 下一个窗口: {deadline:%Y-%m-%d %A} "
             f"{(deadline.strftime('%H:%M'))} 结束, 启动于 {trigger:%m-%d %H:%M}"
