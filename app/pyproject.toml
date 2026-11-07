@@ -1,0 +1,25 @@
+[project]
+license = { text = "MIT" }
+name = "app"
+version = "0.1.0"
+description = "装配入口：读配置 -> curl_cffi 预检 -> 反检测浏览器 -> 登录。运行: uv run python -m app"
+requires-python = ">=3.11"
+dependencies = [
+  "browser",
+  "core",
+  "contracts",
+  "sdyxy",
+]
+
+[tool.uv.sources]
+browser = { workspace = true }
+core = { workspace = true }
+contracts = { workspace = true }
+sdyxy = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
