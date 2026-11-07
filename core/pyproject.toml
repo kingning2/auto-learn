@@ -1,0 +1,16 @@
+[project]
+license = { text = "MIT" }
+name = "core"
+version = "0.1.0"
+description = "基础层：配置读取 / 错误类型。不依赖任何三方浏览器或 HTTP 库。"
+requires-python = ">=3.11"
+dependencies = [
+  "python-dotenv>=1.0",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
