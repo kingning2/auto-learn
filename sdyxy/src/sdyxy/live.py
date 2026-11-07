@@ -310,6 +310,7 @@ def stay_in_room(driver: LoginDriver, settings: Settings, until_epoch: float | N
         print("[观看] 进入观看模式(单次运行: 手动 Ctrl+C 结束)…")
     n = 0
     end_hits = 0  # 连续命中"直播结束"文案的次数(防切流抖动, 连续2次才确认)
+    stall_hits, last_t, resumed = 0, None, False  # 无声卡死检测状态
     while until_epoch is None or time.time() < until_epoch:
         try:
             time.sleep(WATCH_CHECK_S)
@@ -352,10 +353,42 @@ def stay_in_room(driver: LoginDriver, settings: Settings, until_epoch: float | N
                 print(f"[观看] 房间未开播/画面未拉起, 刷新… {fmt_remaining(remaining)}")
                 notify_info("⚠️ 房间画面未拉起，已自动刷新", dedup=True)
                 driver.reload()
-            elif n % 5 == 0:  # 每 5 分钟报一次进度并滚动截图(不发群, 只本地留档)
-                title = driver.evaluate("() => document.title")
-                print(f"[观看] 直播观看中… {fmt_remaining(remaining)} 页面: {title}")
-                driver.screenshot(settings.output_dir / "watching.png")
+            else:
+                # 无声卡死检测: video 暂停且进度不动(排除'休息一会'等有文案的暂停,
+                # 文案暂停会自己恢复, 不算卡死)。连续 3 轮(~15s)不动先 play(),
+                # 仍不动再刷新。正常播放/暂停恢复时进度都在走。
+                vid = driver.evaluate(
+                    "() => {const x=document.querySelector('video');"
+                    "return x ? (x.paused ? 'P' + x.currentTime : 'R') : 'NO'}"
+                )
+                if vid == "R" or not vid:
+                    stall_hits, last_t, resumed = 0, None, False
+                elif vid == "NO":
+                    pass  # 播放器重建中/休息页可能藏住 video, 交给文案分支处理
+                elif vid.startswith("P"):
+                    t = vid[1:]
+                    if t == last_t:
+                        stall_hits += 1
+                    else:
+                        stall_hits, resumed = 0, False
+                    last_t = t
+                    if stall_hits == 3 and not resumed:
+                        print("[观看] 画面疑似卡住(暂停且进度不动), 尝试恢复播放…")
+                        driver.evaluate(
+                            "() => {const x=document.querySelector('video');"
+                            "if(x && x.play){try{x.play()}catch(e){}}}"
+                        )
+                        resumed = True
+                    elif stall_hits >= 6:
+                        print("[观看] 恢复播放无效, 刷新房间拉回…")
+                        notify_info("⚠️ 直播画面卡住，已自动刷新恢复", dedup=True)
+                        driver.reload()
+                        stall_hits, last_t, resumed = 0, None, False
+                # 每 5 分钟报一次进度并滚动截图(不发群, 只本地留档)
+                if n % 5 == 0:
+                    title = driver.evaluate("() => document.title")
+                    print(f"[观看] 直播观看中… {fmt_remaining(remaining)} 页面: {title}")
+                    driver.screenshot(settings.output_dir / "watching.png")
         except Exception as exc:  # noqa: BLE001 —— 观看期间页面崩溃也要拉回
             print(f"[观看] 检查异常({exc!r}), 尝试回到房间列表重新等直播…")
             notify_error("观看期间页面异常，正在尝试自动恢复", exc)
