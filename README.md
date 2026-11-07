@@ -32,6 +32,15 @@ auto-learn/
 
 - Windows x86_64, Python ≥ 3.11（uv workspace 管理）
 - 首次运行已下载反检测引擎（~240MB，缓存于 `%LOCALAPPDATA%\invisible-playwright`）
+- 企业微信通知（独立于 uv venv，故意不进 pyproject 依赖）：ntwork 只支持老版 Python
+  且会向企业微信进程注入 DLL，隔离在系统 Python 3.10 里运行，换机部署需手动：
+
+  ```
+  "C:\Program Files\Python310\python.exe" -m pip install ntwork==0.1.3
+  ```
+
+  core/notify.py 通过 NOTIFY_PYTHON 硬编码该解释器，以子进程方式调用
+  scripts/wework_notify.py 发群消息；关不掉/不想用可在 .env 设 SDYXY_NOTIFY=0。
 
 ## 使用步骤
 
