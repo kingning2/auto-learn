@@ -1,0 +1,24 @@
+[package]
+name = "sdyxy-watchdog"
+version = "0.1.0"
+edition = "2021"
+
+# Windows GUI 子系统: 运行时完全无控制台窗口(计划任务拉起也不闪窗)
+[[bin]]
+name = "sdyxy-watchdog"
+path = "src/main.rs"
+
+[dependencies]
+# 异步定时循环
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "process", "sync"] }
+# 北京时间显示
+chrono = "0.4"
+# 进程枚举(检测 scheduler.py 是否存活)
+sysinfo = "0.33"
+# SetThreadExecutionState(上课时段防休眠)
+windows-sys = { version = "0.59", features = ["Win32_System_Power", "Win32_Foundation"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

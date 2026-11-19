@@ -16,3 +16,6 @@ __pycache__/
 # IDE
 .idea/
 .vscode/
+
+# Rust 构建产物
+watchdog-rs/target/
