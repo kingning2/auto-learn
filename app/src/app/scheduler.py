@@ -174,6 +174,10 @@ def main() -> None:
 
 if __name__ == "__main__":
     try:
+        # 写 PID 文件供 Rust 看门狗检测存活(不用进程名/命令行枚举, 那在本机不可靠)
+        from pathlib import Path
+
+        Path("output/scheduler.pid").write_text(str(os.getpid()))
         main()
     except KeyboardInterrupt:
         print("\n[调度] 手动停止")

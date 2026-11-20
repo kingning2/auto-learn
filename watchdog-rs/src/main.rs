@@ -1,31 +1,37 @@
 //! sdyxy 直播自动观看 · Rust 常驻看门狗
 //!
-//! 职责(与原 scripts/watchdog.py 一致, 但常驻 + 无窗口 + 低占用):
-//!   1. 每 5 分钟检查 scheduler.py 进程, 死了就静默拉起(CREATE_NO_WINDOW)
+//! 职责:
+//!   1. 每 5 分钟检查 scheduler.py 是否存活(读 output/scheduler.pid + OpenProcess 验证),
+//!      死了就静默拉起(CREATE_NO_WINDOW)
 //!   2. 周六上课时段([start-2min, end+10min])调 SetThreadExecutionState 防休眠
 //!   3. 所有动作写 output/watchdog-rs.log
 //!
-//! 由 Windows 计划任务在"登录时/开机时"拉起一次(本程序自己循环,
-//! 不再需要每 5 分钟重复触发, 因此不会再有定时弹窗问题)。
-//! 多实例自守卫: 发现已有本程序在跑就直接退出。
+//! 设计说明: 本机用进程名/命令行枚举(sysinfo, 甚至 Get-Process)检测不可靠,
+//! 因此存活检测改用 PID 文件 + OpenProcess; 单实例守卫用命名互斥量。
 
 #![windows_subsystem = "windows"] // 无控制台窗口(GUI 子系统)
 
 use std::fs::OpenOptions;
 use std::os::windows::process::CommandExt;
+use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
 use chrono::{DateTime, Datelike, NaiveTime, Timelike, Utc};
 use tokio::time::{interval, MissedTickBehavior};
+use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError};
 use windows_sys::Win32::System::Power::{
     SetThreadExecutionState, ES_CONTINUOUS, ES_SYSTEM_REQUIRED,
+};
+use windows_sys::Win32::System::Threading::{
+    CreateMutexW, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "\\..");
 const RS_LOG: &str = concat!(env!("CARGO_MANIFEST_DIR"), "\\..\\output\\watchdog-rs.log");
 const SCHED_LOG: &str = concat!(env!("CARGO_MANIFEST_DIR"), "\\..\\output\\scheduler.log");
+const SCHED_PID: &str = concat!(env!("CARGO_MANIFEST_DIR"), "\\..\\output\\scheduler.pid");
 const VENV_PY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "\\..\\.venv\\Scripts\\python.exe");
 const SCHEDULER: &str = concat!(env!("CARGO_MANIFEST_DIR"), "\\..\\app\\src\\app\\scheduler.py");
 
@@ -64,29 +70,30 @@ fn in_window(now: &DateTime<Utc>) -> bool {
     })
 }
 
-/// 检测 scheduler.py 是否在跑, 以及是否有另一个本程序实例
-fn scan_processes() -> (bool, bool) {
-    let mut sys = sysinfo::System::new();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    let mut sched_alive = false;
-    let mut self_alive = false;
-    let my_pid = std::process::id();
-    for (pid, proc) in sys.processes() {
-        let name = proc.name().to_string_lossy().to_lowercase();
-        let cmd = proc
-            .cmd()
-            .iter()
-            .map(|s| s.to_string_lossy().to_lowercase())
-            .collect::<Vec<_>>()
-            .join(" ");
-        if name.starts_with("python") && cmd.contains("scheduler.py") {
-            sched_alive = true;
-        }
-        if name.contains("sdyxy-watchdog") && pid.as_u32() != my_pid {
-            self_alive = true;
-        }
+/// PID 对应的进程是否存活(OpenProcess 查询权限即可, 不需要名字)
+fn pid_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
     }
-    (sched_alive, self_alive)
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return false;
+        }
+        CloseHandle(h);
+        true
+    }
+}
+
+/// 调度器是否在跑: 读 PID 文件并验证该 PID 活着
+fn scheduler_alive() -> bool {
+    match std::fs::read_to_string(SCHED_PID) {
+        Ok(s) => match s.trim().parse::<u32>() {
+            Ok(pid) => pid_alive(pid),
+            Err(_) => false,
+        },
+        Err(_) => false,
+    }
 }
 
 fn start_scheduler() {
@@ -125,12 +132,7 @@ fn tick() {
         unsafe { SetThreadExecutionState(ES_CONTINUOUS) };
     }
 
-    let (sched_alive, self_dup) = scan_processes();
-    if self_dup {
-        log("检测到另一个看门狗实例在跑, 本实例退出");
-        std::process::exit(0);
-    }
-    if sched_alive {
+    if scheduler_alive() {
         log("调度器运行中, 无需处理");
     } else {
         start_scheduler();
@@ -139,6 +141,15 @@ fn tick() {
 
 #[tokio::main]
 async fn main() {
+    // 单实例守卫: 命名互斥量, 拿不到就退出(任务计划重复触发也安全)
+    unsafe {
+        let h = CreateMutexW(std::ptr::null(), 0, windows_sys::w!("Global\\SDYXY_WatchdogMutex"));
+        if h.is_null() || GetLastError() == ERROR_ALREADY_EXISTS {
+            log("已有看门狗实例在跑(互斥量占用), 本实例退出");
+            std::process::exit(0);
+        }
+    }
+
     log(&format!("Rust 看门狗启动 (pid={})", std::process::id()));
     let mut itv = interval(Duration::from_secs(5 * 60));
     itv.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -149,4 +160,10 @@ async fn main() {
         itv.tick().await;
         tick();
     }
+}
+
+// 让 Rust 知道 ROOT 被用于 spawn 的 current_dir(避免未使用警告)
+#[allow(dead_code)]
+fn _root_used() -> &'static Path {
+    Path::new(ROOT)
 }
